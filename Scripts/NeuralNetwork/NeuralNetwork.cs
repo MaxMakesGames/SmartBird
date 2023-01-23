@@ -8,9 +8,9 @@ using Random = UnityEngine.Random;
 public class Connection
 {
     public double weight;
-    public Node from;
+    public NeuralNode from;
 
-    public Connection(double weight, Node from)
+    public Connection(double weight, NeuralNode from)
     {
         this.weight = weight;
         this.from = from;
@@ -18,14 +18,14 @@ public class Connection
 }
 
 [Serializable]
-public class Node
+public class NeuralNode
 {
     public int id;
     public double bias;
     public Connection[] inConnections;
     public double output;
 
-    public Node(int id, double bias, Node[] connectionsNodess)
+    public NeuralNode(int id, double bias, NeuralNode[] connectionsNodess)
     {
         this.id = id;
         this.bias = bias;
@@ -40,9 +40,9 @@ public class Node
 
 public class Layer
 {
-    public Node[] nodes;
+    public NeuralNode[] nodes;
 
-    public Layer(Node[] nodes)
+    public Layer(NeuralNode[] nodes)
     {
         this.nodes = nodes;
     }
@@ -51,30 +51,38 @@ public class Layer
     {
         return 1 / (1 + Mathf.Exp(-((float)weightedInput)));
     }
-
-    public void CalculateOutputsFromInput(double[] inputs)
+    
+#region Output calculations
+    /// <summary>
+    /// Calculate outputs for the first layers
+    /// </summary>
+    /// <param name="inputs"></param>
+    public void CalculateOutputsFromInputs(double[] inputs)
     {
-        for(int n = 0; n < nodes.Length; n++)
+        for (int nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
         {
-            double weightedInput = inputs[n] + nodes[n].bias;
-            nodes[n].output = Activate(weightedInput);
+            double weightedInput = inputs[nodeIndex] + nodes[nodeIndex].bias;
+            nodes[nodeIndex].output = Activate(weightedInput);
         }
     }
-
-    public void CalculateOutputs(NeuralNetwork network)
+    /// <summary>
+    /// Calculate outputs for the hidden layers
+    /// </summary>
+    public void CalculateOutputs()
     {
-        for(int n = 0; n < nodes.Length; n++)
+        for (int nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
         {
-            double weightedInput = nodes[n].bias;
-            for(int i = 0; i < nodes[n].inConnections.Length; i++)
+            double weightedInput = nodes[nodeIndex].bias;
+            Connection[] connections = nodes[nodeIndex].inConnections;
+            for (int connectionIndex = 0; connectionIndex < connections.Length; connectionIndex++)
             {
-                weightedInput += nodes[n].inConnections[i].from.output * nodes[n].inConnections[i].weight;
+                Connection connection = connections[connectionIndex];
+                weightedInput += connection.from.output * connection.weight;
             }
-            nodes[n].output = Activate(weightedInput);
+            nodes[nodeIndex].output = Activate(weightedInput);
         }
     }
-
-    public double[] GetOutputs()
+    public double[] GetLayerOutputs()
     {
         double[] outputs = new double[nodes.Length];
         for(int n = 0; n < nodes.Length; n++)
@@ -83,10 +91,11 @@ public class Layer
         }
         return outputs;
     }
-
+#endregion
+#region Randomizing
     public void Randomize(float range)
     {
-        foreach(Node n in nodes)
+        foreach(NeuralNode n in nodes)
         {
             foreach(Connection c in n.inConnections)
             {
@@ -98,7 +107,7 @@ public class Layer
 
     public void SlightlyRandomize(float range)
     {
-        foreach (Node n in nodes)
+        foreach (NeuralNode n in nodes)
         {
             foreach (Connection c in n.inConnections)
             {
@@ -107,6 +116,7 @@ public class Layer
             n.bias += Random.Range(-range, range);
         }
     }
+#endregion
 }
 
 public class NeuralNetwork
@@ -122,12 +132,12 @@ public class NeuralNetwork
 
         ConnectAll();
     }
-
-    public Node GetNodeWithID(int id)
+#region Unnecessary functions?
+    public NeuralNode GetNodeWithID(int id)
     {
         foreach(Layer layer in layers)
         {
-            foreach(Node n in layer.nodes)
+            foreach(NeuralNode n in layer.nodes)
             {
                 if (n.id == id)
                     return n;
@@ -140,7 +150,7 @@ public class NeuralNetwork
     {
         foreach (Layer layer in layers)
         {
-            foreach (Node n in layer.nodes)
+            foreach (NeuralNode n in layer.nodes)
             {
                 foreach(Connection c in n.inConnections)
                 {
@@ -149,7 +159,13 @@ public class NeuralNetwork
             }
         }
     }
-
+#endregion
+#region Getting Outputs by the neural network  
+    /// <summary>
+    /// Calculate the outputs of the neural network
+    /// </summary>
+    /// <param name="inputs"></param>
+    /// <returns></returns>
     public double[] GetOutputs(double[] inputs)
     {
         layers[0].CalculateOutputsFromInput(inputs);
@@ -157,39 +173,52 @@ public class NeuralNetwork
         {
             layers[i].CalculateOutputs(this);
         }
-        return layers[layers.Length - 1].GetOutputs();
+        return layers[layers.Length - 1].GetLayerOutputs();
     }
-
-    public void ConnectAll()
-    {
-        for(int i = 0; i < layers.Length; i++)
+#endregion
+#region Connecting nodes of this layer with previous layer
+    /// <summary>
+    /// For each layer, connect all nodes with the previous layer
+    /// </summary>
+    public void ConnectAll(){
+        for (int layerIndex = 0; layerIndex < layers.Length; layerIndex++)
         {
-            Node[] nodes = new Node[layerSizes[i]];
-            for(int n = 0; n < nodes.Length; n++)
-            {
-                Node[] connections;
-                if(i <= 0)
-                {
-                    connections = new Node[0];
-                }
-                else
-                {
-                    connections = new Node[layerSizes[i-1]]; //previous layer
-                    for(int k = 0; k < layerSizes[i - 1]; k++)
-                    {
-                        Node connectNode = layers[i - 1].nodes[k];
-                        connections[k] = connectNode;
-                    }
-                }
+            NeuralNode[] currentLayersNewNodes = new NeuralNode[layerSizes[layerIndex]];
+            NeuralNode[] connectingNodes = GetConnectingNodesWithPreviousLayer(layerIndex);
 
-                Node node = new Node(nodeCount, 0, connections);
-                nodeCount++;
-                nodes[n] = node;
+            for (int nodeIndex = 0; nodeIndex < currentLayersNewNodes.Length; nodeIndex++)
+            {
+                int newNodeId = nodeCount++;
+                int newNodeBias = 0;
+                NeuralNode node = new NeuralNode(newNodeId, newNodeBias, connectingNodes);
+                currentLayersNewNodes[nodeIndex] = node;
             }
-            layers[i] = new Layer(nodes);
+            layers[layerIndex] = new Layer(currentLayersNewNodes);
         }
     }
+    
+    /// <summary>
+    /// Get all the nodes of the previous layer
+    /// </summary>
+    /// <param name="layerIndex">The current index layer</param>
+    /// <returns></returns>
+    private NeuralNode[] GetConnectingNodesWithPreviousLayer(int layerIndex)
+    {
+        if (layerIndex == 0) return new NeuralNode[0];
 
+        int previousLayerLenght = layerSizes[layerIndex - 1];
+        NeuralNode[] connectingNodes = new NeuralNode[previousLayerLenght];
+        
+        for (int connectionIndex = 0; connectionIndex < previousLayerLenght; connectionIndex++)
+        {
+            NeuralNode connectNode = layers[layerIndex - 1].nodes[connectionIndex];
+            connectingNodes[connectionIndex] = connectNode;
+        }
+
+        return connectingNodes;
+    }
+#endregion 
+#region Randomizing
     public void RandomizeLayers(float range)
     {
         foreach(Layer layer in layers)
@@ -205,4 +234,5 @@ public class NeuralNetwork
             layer.SlightlyRandomize(range);
         }
     }
+#endregion
 }
